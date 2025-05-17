@@ -1,5 +1,4 @@
-```markdown
-# Slide Controller
+# Node MCU Slide Controller
 
 A system to control presentation slides (e.g., PowerPoint, Keynote) using an ESP8266-based web interface and a Python UDP server. The ESP8266 hosts a web server to send commands (next, prev, start, exit, current) via UDP to a Python script, which simulates keyboard inputs using `pyautogui`. The ESP8266 also controls an onboard LED with visual effects (blink, lightshow, command-specific patterns). The Python script can be converted to a standalone executable using PyInstaller for easier deployment.
 
