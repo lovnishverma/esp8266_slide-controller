@@ -1,3 +1,58 @@
+# ESP-8266 Slide Controller
+
+A system to control presentation slides (e.g., PowerPoint, Keynote) using an ESP8266-based web interface and a Python UDP server. The ESP8266 hosts a web server to send commands (next, prev, start, exit, current) via UDP to a Python script, which simulates keyboard inputs using `pyautogui`. The ESP8266 also controls an onboard LED with visual effects (blink, lightshow, command-specific patterns). The Python script can be converted to a standalone executable using PyInstaller for easier deployment.
+
+---
+
+![esp](https://github.com/user-attachments/assets/b19cba12-cbf4-4184-a25d-5a408bc75487)
+
+
+## Features
+
+- **Web Interface**: Control slides and LED effects via a browser (accessible at `http://slidecontroller.local` or IP address).
+- **UDP Communication**: Sends commands to a Python UDP server listening on port 4211.
+- **LED Effects**:
+  - Blink: 500ms on/off cycle.
+  - Lightshow: Smooth fading effect.
+  - Command-specific patterns (e.g., quick pulse for next, slow fade for prev).
+  - Static on/off toggle.
+- **mDNS Support**: Access the web interface via `http://slidecontroller.local` (network-dependent).
+- **Executable Conversion**: Convert the Python script to a standalone `.exe` using PyInstaller for Windows deployment.
+- **Cross-Platform**: Python script runs on Windows, macOS, or Linux; ESP8266 works with any WiFi network.
+
+---
+
+## Components
+
+| Component            | Description                                                  |
+|----------------------|--------------------------------------------------------------|
+| **Python UDP Server** | Listens for UDP packets on port 4211 and simulates keyboard inputs. |
+| **ESP8266 Sketch**    | Hosts web server on port 80, sends UDP commands, controls onboard LED with PWM. |
+
+---
+
+## Requirements
+
+### Hardware
+- ESP8266 board (e.g., NodeMCU, Wemos D1 Mini)
+- Onboard LED (connected to `LED_BUILTIN`, active-low)
+- WiFi network access
+
+### Software
+- **Python Environment** (for running/converting the script):
+  - Python 3.x
+  - `pyautogui` (`pip install pyautogui`)
+  - `PyInstaller` (for executable conversion, `pip install pyinstaller`)
+- **Arduino Environment**:
+  - Arduino IDE or compatible editor
+  - ESP8266 board support: [ESP8266 Arduino Core](http://arduino.esp8266.com/stable/package_esp8266com_index.json)
+  - Libraries: `ESP8266WiFi`, `ESP8266WebServer`, `WiFiUdp`, `ESP8266mDNS`
+- Presentation software that responds to keyboard inputs (e.g., PowerPoint, Keynote)
+- OS: Windows (for `.exe`), macOS, or Linux
+
+---
+
+
 # 1. ESP8266 Arduino Sketch (`esp8266_code.ino`)
 
 This sketch:
@@ -461,7 +516,7 @@ slide-controller/
 # 9. License (MIT)
 
 ```text
-MIT License
+
 ...
 
 MIT License
