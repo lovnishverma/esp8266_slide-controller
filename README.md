@@ -1,3 +1,4 @@
+```markdown
 # Slide Controller
 
 A system to control presentation slides (e.g., PowerPoint, Keynote) using an ESP8266-based web interface and a Python UDP server. The ESP8266 hosts a web server to send commands (next, prev, start, exit, current) via UDP to a Python script, which simulates keyboard inputs using `pyautogui`. The ESP8266 also controls an onboard LED with visual effects (blink, lightshow, command-specific patterns). The Python script can be converted to a standalone executable using PyInstaller for easier deployment.
@@ -148,18 +149,10 @@ const char* ssid = "your-ssid";
 const char* password = "your-password";
 ```
 
-5. **(Optional) Update UDP Target IP:**
-
-If not using UDP broadcast, replace broadcast IP:
-
-```cpp
-IPAddress broadcastIP(192, 168, 1, 100); // Replace with your Python server IP
-```
-
-6. **Upload Sketch:**
+5. **Upload Sketch:**
    Connect ESP8266 and upload.
 
-7. **Monitor Serial:**
+6. **Monitor Serial:**
    Open Serial Monitor at 115200 baud to see IP address and status.
 
 ---
@@ -281,6 +274,10 @@ For questions or support, open an issue on the GitHub repository.
 * Uses ESP8266 Arduino Core for WiFi and web server functionality.
 * Inspired by the need for simple, wireless presentation control.
 
+---
+
+
+
 ```
 **Made with Lots of Love by Lovnish Verma**
----
+```
