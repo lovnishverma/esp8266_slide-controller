@@ -1,282 +1,489 @@
-# Node MCU Slide Controller
+# 1. ESP8266 Arduino Sketch (`esp8266_code.ino`)
 
-A system to control presentation slides (e.g., PowerPoint, Keynote) using an ESP8266-based web interface and a Python UDP server. The ESP8266 hosts a web server to send commands (next, prev, start, exit, current) via UDP to a Python script, which simulates keyboard inputs using `pyautogui`. The ESP8266 also controls an onboard LED with visual effects (blink, lightshow, command-specific patterns). The Python script can be converted to a standalone executable using PyInstaller for easier deployment.
+This sketch:
+
+* Connects ESP8266 to your WiFi.
+* Hosts a web server with a simple slide control UI.
+* Sends UDP commands to your PC (default port 4211).
+* Controls onboard LED with different effects.
+* Supports mDNS for `slidecontroller.local`.
+* Handles LED blink, lightshow, static on/off, and pulse effects on commands.
+
+```cpp
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <WiFiUdp.h>
+#include <ESP8266mDNS.h>
+
+// WiFi Settings
+const char* ssid = "YOUR_WIFI_NAME(SSID)";
+const char* password = "yOUR_WIFI_PASSWORD";
+
+// mDNS hostname
+const char* hostName = "slidecontroller";
+
+// UDP setup
+WiFiUDP udp;
+unsigned int localUdpPort = 4210;
+unsigned int remoteUdpPort = 4211;
+
+ESP8266WebServer server(80);
+
+// LED control
+const int LED_PIN = LED_BUILTIN;
+const int PWM_RANGE = 1023;
+
+// Blink variables
+unsigned long previousMillis = 0;
+const unsigned long blinkInterval = 500;
+bool ledBlinkState = false;
+
+// Command effect flags
+bool commandEffect = false;
+unsigned long commandEffectStartTime = 0;
+byte commandEffectType = 0; // 0=next, 1=prev, 2=start, 3=exit, 4=current
+const unsigned long COMMAND_EFFECT_DURATION = 1500;
+
+// Lightshow / Blink / LED state
+bool lightshowEnabled = true;
+bool blinkEnabled = false;
+bool ledOn = false;
+
+// HTML page served by the ESP8266 with %IP_ADDRESS% placeholder
+const char* html_content = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Slide Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
+    h1 { color: #333; }
+    button {
+      font-size: 18px;
+      padding: 15px 30px;
+      margin: 10px;
+      border: none;
+      border-radius: 5px;
+      color: #fff;
+      background-color: #4CAF50;
+      transition: background-color 0.3s;
+      cursor: pointer;
+    }
+    button:hover { background-color: #45a049; }
+    #prev { background-color: #f44336; }
+    #start { background-color: #2196F3; }
+    #exit { background-color: #ff9800; }
+    #current { background-color: #9c27b0; }
+    #toggleBlink { background-color: #607d8b; }
+    #toggleBlink.active { background-color: #00796b; }
+    #lightshow { background-color: #e91e63; }
+    #toggleLed { background-color: #795548; }
+    #toggleLed.active { background-color: #5d4037; }
+    .status { margin-top: 15px; padding: 10px; background: #e0e0e0; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>PowerPoint Controller</h1>
+  <p><strong>Current IP:</strong> <span id="ip">%IP_ADDRESS%</span></p>
+
+  <div>
+    <button onclick="send('next')">Next Slide</button>
+    <button id="prev" onclick="send('prev')">Previous Slide</button><br>
+    <button id="start" onclick="send('start')">Start</button>
+    <button id="exit" onclick="send('exit')">Exit</button>
+    <button id="current" onclick="send('current')">Current Slide</button><br>
+    <button id="toggleBlink">Toggle Blink</button>
+    <button id="lightshow" onclick="send('lightshow')">Toggle Lightshow</button>
+    <button id="toggleLed">Toggle LED</button>
+  </div>
+  <div class="status" id="status">Blink: Disabled | LED: Off</div>
+
+  <script>
+    let blinkEnabled = false;
+    let ledOn = false;
+
+    function send(cmd) {
+      fetch('/command?cmd=' + cmd)
+        .then(res => res.text())
+        .then(text => {
+          console.log('Sent:', text);
+          if (cmd === 'toggleBlink') {
+            blinkEnabled = !blinkEnabled;
+            document.getElementById("status").innerText = "Blink: " + (blinkEnabled ? "Enabled" : "Disabled") + " | LED: " + (ledOn ? "On" : "Off");
+            const toggleBlink = document.getElementById("toggleBlink");
+            toggleBlink.classList.toggle("active", blinkEnabled);
+          } else if (cmd === 'lightshow') {
+            console.log(text);
+            document.getElementById("status").innerText = "Blink: " + (blinkEnabled ? "Enabled" : "Disabled") + " | LED: " + (ledOn ? "On" : "Off");
+          } else if (cmd === 'toggleLed') {
+            ledOn = !ledOn;
+            document.getElementById("status").innerText = "Blink: " + (blinkEnabled ? "Enabled" : "Disabled") + " | LED: " + (ledOn ? "On" : "Off");
+            const toggleLed = document.getElementById("toggleLed");
+            toggleLed.classList.toggle("active", ledOn);
+          }
+        })
+        .catch(err => console.error('Error:', err));
+    }
+
+    document.getElementById("toggleBlink").addEventListener("click", () => {
+      send("toggleBlink");
+    });
+    document.getElementById("toggleLed").addEventListener("click", () => {
+      send("toggleLed");
+    });
+  </script>
+</body>
+</html>
+)rawliteral";
+
+void handleRoot() {
+  String html = html_content;
+  html.replace("%IP_ADDRESS%", WiFi.localIP().toString());
+  server.send(200, "text/html", html);
+}
+
+void handleCommand() {
+  String command = server.arg("cmd");
+  if (command.length() > 0) {
+    if (command == "lightshow") {
+      if (!blinkEnabled && !ledOn) {
+        lightshowEnabled = !lightshowEnabled;
+        server.send(200, "text/plain", lightshowEnabled ? "Lightshow enabled" : "Lightshow disabled");
+      } else {
+        server.send(200, "text/plain", "Blink or LED is enabled, lightshow disabled");
+      }
+    }
+    else if (command == "toggleBlink") {
+      blinkEnabled = !blinkEnabled;
+      if (blinkEnabled) {
+        lightshowEnabled = false; // Disable lightshow when blink starts
+        ledOn = false;           // Disable LED when blink starts
+        setLedBrightness(255);   // Start blinking immediately
+      } else {
+        setLedBrightness(0);     // Turn LED off when blink stops
+      }
+      server.send(200, "text/plain", blinkEnabled ? "Blink enabled" : "Blink disabled");
+    }
+    else if (command == "toggleLed") {
+      ledOn = !ledOn;
+      if (ledOn) {
+        blinkEnabled = false;    // Disable blink when LED is on
+        lightshowEnabled = false; // Disable lightshow when LED is on
+        setLedBrightness(255);   // Turn LED on
+      } else {
+        setLedBrightness(0);     // Turn LED off
+      }
+      server.send(200, "text/plain", ledOn ? "LED on" : "LED off");
+    }
+    else {
+      commandEffect = true;
+      commandEffectStartTime = millis();
+
+      if (command == "next") commandEffectType = 0;
+      else if (command == "prev") commandEffectType = 1;
+      else if (command == "start") commandEffectType = 2;
+      else if (command == "exit") commandEffectType = 3;
+      else if (command == "current") commandEffectType = 4;
+      else commandEffectType = 0;
+
+      IPAddress broadcastIP = IPAddress(255, 255, 255, 255); // Universal broadcast
+      udp.beginPacket(broadcastIP, remoteUdpPort);
+      udp.write(command.c_str());
+      udp.endPacket();
+
+      server.send(200, "text/plain", "Command sent: " + command);
+    }
+  } else {
+    server.send(400, "text/plain", "Missing command");
+  }
+}
+
+void handleNotFound() {
+  server.sendHeader("Location", "http://" + WiFi.localIP().toString(), true);
+  server.send(302, "text/plain", "");
+}
+
+void setLedBrightness(int brightness) {
+  analogWrite(LED_PIN, PWM_RANGE - (brightness * PWM_RANGE / 255));
+}
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  analogWriteRange(PWM_RANGE);
+  analogWriteFreq(10000);
+
+  Serial.begin(115200);
+
+  WiFi.mode(WIFI_STA);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Connecting to WiFi...");
+    WiFi.begin(ssid, password);
+    int tries = 0;
+    while (WiFi.status() != WL_CONNECTED && tries < 10) {
+      delay(500);
+      Serial.print(".");
+      tries++;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("\nRetrying WiFi connection...");
+      delay(1000);
+    }
+  }
+
+  Serial.println("\nConnected to WiFi");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Setup mDNS responder
+  if (!MDNS.begin(hostName)) {
+    Serial.println("Error setting up MDNS responder!");
+  } else {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("mDNS responder started: http://slidecontroller.local");
+  }
+
+  udp.begin(localUdpPort);
+
+  server.on("/", handleRoot);
+  server.on("/command", handleCommand);
+  server.onNotFound(handleNotFound);
+  server.begin();
+
+  setLedBrightness(0); // Turn LED off initially
+}
+
+void runCommandEffect() {
+  unsigned long elapsed = millis() - commandEffectStartTime;
+
+  switch (commandEffectType) {
+    case 0: // next - quick bright pulse
+      if (elapsed < 100) setLedBrightness(255);
+      else if (elapsed < 300) setLedBrightness(128);
+      else if (elapsed < COMMAND_EFFECT_DURATION) {
+        int val = (int)((COMMAND_EFFECT_DURATION - elapsed) * 255 / (COMMAND_EFFECT_DURATION - 300));
+        setLedBrightness(val);
+      } else commandEffect = false;
+      break;
+
+    case 1: // prev - slow fade in and out
+      if (elapsed < COMMAND_EFFECT_DURATION) {
+        int val = (int)(127 + 128 * sin(2 * 3.14159 * elapsed / COMMAND_EFFECT_DURATION));
+        setLedBrightness(val);
+      } else commandEffect = false;
+      break;
+
+    case 2: // start - pulse up and hold bright
+      if (elapsed < 500) {
+        int val = (int)(elapsed * 255 / 500);
+        setLedBrightness(val);
+      } else if (elapsed < COMMAND_EFFECT_DURATION) {
+        setLedBrightness(255);
+      } else commandEffect = false;
+      break;
+
+    case 3: // exit - pulse down and off
+      if (elapsed < 500) {
+        int val = 255 - (int)(elapsed * 255 / 500);
+        setLedBrightness(val);
+      } else commandEffect = false;
+      break;
+
+    case 4: // current - slow pulse
+      if (elapsed < COMMAND_EFFECT_DURATION) {
+        int val = (int)(127 + 128 * sin(2 * 3.14159 * elapsed / COMMAND_EFFECT_DURATION));
+        setLedBrightness(val);
+      } else commandEffect = false;
+      break;
+
+    default:
+      commandEffect = false;
+      break;
+  }
+}
+
+void runLightshow() {
+  static unsigned long lastUpdate = 0;
+  static int brightness = 0;
+  static int fadeAmount = 5;
+
+  if (millis() - lastUpdate > 30) {
+    lastUpdate = millis();
+    brightness += fadeAmount;
+    if (brightness <= 0 || brightness >= 255) fadeAmount = -fadeAmount;
+    setLedBrightness(brightness);
+  }
+}
+
+void runBlink() {
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= blinkInterval) {
+    previousMillis = currentMillis;
+    ledBlinkState = !ledBlinkState;
+    setLedBrightness(ledBlinkState ? 255 : 0);
+  }
+}
+
+void loop() {
+  MDNS.update(); // Required for mDNS
+  server.handleClient();
+
+  if (blinkEnabled) {
+    runBlink();
+  } else if (ledOn) {
+    setLedBrightness(255); // LED permanently on
+  } else {
+    if (commandEffect) {
+      runCommandEffect();
+    } else {
+      if (lightshowEnabled) {
+        runLightshow();
+      } else {
+        setLedBrightness(0); // LED fully off
+      }
+    }
+  }
+}
+```
 
 ---
 
-## Features
+# 2. Python UDP Server (`slide_controller.py`)
 
-- **Web Interface**: Control slides and LED effects via a browser (accessible at `http://slidecontroller.local` or IP address).
-- **UDP Communication**: Sends commands to a Python UDP server listening on port 4211.
-- **LED Effects**:
-  - Blink: 500ms on/off cycle.
-  - Lightshow: Smooth fading effect.
-  - Command-specific patterns (e.g., quick pulse for next, slow fade for prev).
-  - Static on/off toggle.
-- **mDNS Support**: Access the web interface via `http://slidecontroller.local` (network-dependent).
-- **Executable Conversion**: Convert the Python script to a standalone `.exe` using PyInstaller for Windows deployment.
-- **Cross-Platform**: Python script runs on Windows, macOS, or Linux; ESP8266 works with any WiFi network.
+* Listens on UDP port 4211.
+* Maps commands to keyboard inputs using `pyautogui`.
+* Logs received commands.
+* Can be converted to standalone executable with PyInstaller.
 
----
+```python
+import socket
+import pyautogui
 
-## Components
+UDP_IP = "0.0.0.0"
+UDP_PORT = 4211
 
-| Component            | Description                                                  |
-|----------------------|--------------------------------------------------------------|
-| **Python UDP Server** | Listens for UDP packets on port 4211 and simulates keyboard inputs. |
-| **ESP8266 Sketch**    | Hosts web server on port 80, sends UDP commands, controls onboard LED with PWM. |
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((UDP_IP, UDP_PORT))
 
----
+print(f"Listening for slide commands on UDP {UDP_PORT}...")
 
-## Requirements
-
-### Hardware
-- ESP8266 board (e.g., NodeMCU, Wemos D1 Mini)
-- Onboard LED (connected to `LED_BUILTIN`, active-low)
-- WiFi network access
-
-### Software
-- **Python Environment** (for running/converting the script):
-  - Python 3.x
-  - `pyautogui` (`pip install pyautogui`)
-  - `PyInstaller` (for executable conversion, `pip install pyinstaller`)
-- **Arduino Environment**:
-  - Arduino IDE or compatible editor
-  - ESP8266 board support: [ESP8266 Arduino Core](http://arduino.esp8266.com/stable/package_esp8266com_index.json)
-  - Libraries: `ESP8266WiFi`, `ESP8266WebServer`, `WiFiUdp`, `ESP8266mDNS`
-- Presentation software that responds to keyboard inputs (e.g., PowerPoint, Keynote)
-- OS: Windows (for `.exe`), macOS, or Linux
-
----
-
-## Project Structure
+while True:
+    data, addr = sock.recvfrom(1024)
+    cmd = data.decode().strip()
+    print(f"Received: {cmd} from {addr}")
+    if cmd == "next":
+        pyautogui.press('right')
+    elif cmd == "prev":
+        pyautogui.press('left')
+    elif cmd == "start":
+        pyautogui.press('f5')
+    elif cmd == "exit":
+        pyautogui.press('esc')
+    elif cmd == "current":
+        pyautogui.hotkey("shift", "f5")
 
 ```
 
-slide-controller/
-├── esp8266_code/
-│   └── esp8266_code.ino   # ESP8266 Arduino sketch
-├── python_code/
-│   └── slide_controller.py    # Python UDP server script run on host machine
-├── README.md                  # Project documentation
-└── LICENSE                    # License file (MIT)
-
-````
-
 ---
 
-## Setup
+# 3. Instructions to Convert Python Script to Executable
 
-### Python UDP Server
-
-1. **Install Dependencies:**
-
-```bash
-pip install pyautogui pyinstaller
-````
-
-2. **Save the Script:**
-
-Save `python/slide_controller.py` to your project directory.
-
-3. **Run the Script:**
-
-```bash
-python python/slide_controller.py
-```
-
-The script listens on UDP `0.0.0.0:4211` and logs received commands. Make sure your presentation software is active to receive key presses.
-
----
-
-### Converting Python Script to Executable
-
-1. **Install PyInstaller:**
+Run these commands in your terminal/command prompt inside the directory where `slide_controller.py` resides:
 
 ```bash
 pip install pyinstaller
-```
-
-2. **Navigate to Python Directory:**
-
-```bash
-cd python
-```
-
-3. **Create Executable:**
-
-```bash
 pyinstaller --onefile --name SlideController slide_controller.py
 ```
 
-* `--onefile`: Packages everything into a single executable.
-* `--name SlideController`: Names the output executable `SlideController.exe`.
+* The executable will be created in `dist/SlideController.exe` (Windows).
+* Double-click or run in terminal.
 
-4. **Locate Executable:**
+---
 
-The `.exe` will be created in `python/dist/SlideController.exe`.
+# 4. Project Folder Structure
 
-5. **Run Executable:**
-
-Double-click `SlideController.exe` or run from command line:
-
-```bash
-./dist/SlideController.exe
+```
+slide-controller/
+├── esp8266_code/
+│   └── esp8266_code.ino        # ESP8266 Arduino sketch
+├── python_code/
+│   └── slide_controller.py     # Python UDP server script
+├── README.md                   # This documentation file
+└── LICENSE                     # MIT License file
 ```
 
 ---
 
-### ESP8266 Setup
+# 5. Usage Summary
 
-1. **Install Arduino IDE and ESP8266 Support:**
+* Upload ESP8266 sketch after updating WiFi SSID/password and `targetIP` (your PC IP).
+* Run Python UDP server on your PC.
+* Connect ESP8266 to WiFi.
+* Open browser on any device in the same network to `http://slidecontroller.local` or the ESP IP address.
+* Control slides and LED effects wirelessly.
 
-* Add ESP8266 board URL to Arduino IDE Preferences:
-  `http://arduino.esp8266.com/stable/package_esp8266com_index.json`
-* Install ESP8266 platform from Boards Manager.
+---
 
-2. **Install Required Libraries:**
-   Install via Library Manager:
-   `ESP8266WiFi`, `ESP8266WebServer`, `WiFiUdp`, `ESP8266mDNS`
+# 6. Troubleshooting Tips
 
-3. **Open Sketch:**
-   Open `esp8266/slide_controller.ino` in Arduino IDE.
+* Make sure your PC firewall allows UDP port 4211 inbound.
+* If `slidecontroller.local` doesn't work, find ESP IP from Serial Monitor and use it.
+* Presentation window must be focused for `pyautogui` to send keypresses.
+* For macOS, you might need to grant accessibility permissions to control keyboard.
+* Confirm `LED_BUILTIN` pin is correct for your ESP board (GPIO2 for NodeMCU).
+* Use wired keyboard keys mapping matching your presentation software.
 
-4. **Configure WiFi Credentials:**
+---
 
-```cpp
-const char* ssid = "your-ssid";
-const char* password = "your-password";
+# 7. Security Considerations
+
+* This system operates on your local network only.
+* No authentication on the web server—consider adding if exposing to larger networks.
+* UDP communication is unencrypted.
+* Limit access via WiFi network control or VPN.
+
+---
+
+# 8. Future Enhancements (Suggestions)
+
+* Add dynamic configuration page to set target IP, WiFi credentials.
+* Implement HTTPS and basic auth for web UI.
+* Add WebSocket communication to get real-time LED status feedback on UI.
+* Support more complex key sequences or macros.
+* Add OTA update for ESP8266 firmware.
+* Add mobile app with Bluetooth or MQTT backend.
+
+---
+
+# 9. License (MIT)
+
+```text
+MIT License
+...
+
+MIT License
+
+Copyright (c) 2025 Lovnish Verma
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
-5. **Upload Sketch:**
-   Connect ESP8266 and upload.
-
-6. **Monitor Serial:**
-   Open Serial Monitor at 115200 baud to see IP address and status.
-
 ---
-
-## Usage
-
-1. **Start Python Server:**
-
-Run the Python script or executable. Ensure the presentation is open and focused.
-
-2. **Power On ESP8266:**
-
-Ensure it connects to WiFi.
-
-3. **Access Web Interface:**
-
-Open a browser and navigate to:
-
-* `http://slidecontroller.local` (if mDNS works), or
-* The ESP8266 IP address (e.g., `http://192.168.x.x`).
-
-4. **Control Presentation:**
-
-Buttons available on the web interface:
-
-| Button         | Action                 | Keyboard Equivalent |
-| -------------- | ---------------------- | ------------------- |
-| Next Slide     | Move to next slide     | Right Arrow         |
-| Previous Slide | Move to previous slide | Left Arrow          |
-| Start          | Start presentation     | F5                  |
-| Exit           | Exit presentation mode | Esc                 |
-| Current Slide  | Go to current slide    | Shift + F5          |
-
-5. **LED Controls:**
-
-* Toggle Blink (500ms cycle)
-* Toggle Lightshow (fading effect)
-* Toggle LED On/Off
-* Visual LED feedback on slide commands
-
----
-
-## Testing
-
-### Python Server
-
-Send test UDP packets from terminal:
-
-```bash
-echo -n "next" | nc -u 127.0.0.1 4211
-```
-
-Verify presentation responds and server logs commands.
-
-### ESP8266
-
-* Open web interface, click buttons.
-* Confirm LED reacts to effects and commands.
-* Confirm Python server logs commands.
-* Presentation responds accordingly.
-
----
-
-## Troubleshooting
-
-* **WiFi Connection:** Check SSID/password and signal.
-* **UDP Issues:** Ensure UDP port 4211 is open on host firewall.
-* **Web Interface:** Use IP if `slidecontroller.local` does not resolve.
-* **Python/Executable:** Test `pyautogui` with a simple script. Check for antivirus blocking.
-* **LED:** Verify `LED_BUILTIN` pin and active-low behavior.
-* **Presentation:** Focus window and check key mapping compatibility.
-
----
-
-## Security Notes
-
-* Python UDP server listens on all interfaces (`0.0.0.0`). Restrict IP in production.
-* ESP8266 web server is open on local network. Add authentication if needed.
-* Secure WiFi credentials and executable distribution.
-* Use private networks or VPN to avoid unauthorized access.
-
----
-
-## Future Improvements
-
-* Add command-line args for UDP IP/port in Python.
-* GUI for Python server using Tkinter.
-* Configurable UDP target IP on ESP8266 via web interface.
-* WebSocket support for LED status updates.
-* EEPROM storage for ESP8266 settings persistence.
-* OTA firmware updates using ArduinoOTA.
-* Support more presentation software key mappings.
-* Mobile app for remote control.
-* Enhanced security (HTTPS, token auth).
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
----
-
-## Contributing
-
-Contributions welcome! Please submit pull requests or open issues on GitHub.
-
----
-
-## Contact
-
-For questions or support, open an issue on the GitHub repository.
-
----
-
-## Acknowledgments
-
-* Built with PyInstaller for executable conversion.
-* Uses ESP8266 Arduino Core for WiFi and web server functionality.
-* Inspired by the need for simple, wireless presentation control.
-
----
-
-
-
-```
-**Made with Lots of Love by [Lovnish Verma](http://lovnish.glitch.me/)**
-```
