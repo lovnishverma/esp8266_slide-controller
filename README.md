@@ -473,9 +473,10 @@ slide-controller/
 
 # 5. Usage Summary
 
-* Upload ESP8266 sketch after updating WiFi SSID/password and `targetIP` (your PC IP).
+* Upload ESP8266 sketch after updating WiFi SSID/password.
+* Connect ESP8266 to same WiFi.
+* Connect PC to same WiFi that is specified in esp-8266 code.
 * Run Python UDP server on your PC.
-* Connect ESP8266 to WiFi.
 * Open browser on any device in the same network to `http://slidecontroller.local` or the ESP IP address.
 * Control slides and LED effects wirelessly.
 
