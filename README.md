@@ -54,10 +54,10 @@ A system to control presentation slides (e.g., PowerPoint, Keynote) using an ESP
 ```
 
 slide-controller/
-├── python/
-│   └── slide\_controller.py    # Python UDP server script
-├── esp8266/
-│   └── slide\_controller.ino   # ESP8266 Arduino sketch
+├── pythonc_code/
+│   └── slide_controller.py    # Python UDP server script run on host machine
+├── esp8266_code/
+│   └── esp8266_code.ino   # ESP8266 Arduino sketch
 ├── README.md                  # Project documentation
 └── LICENSE                    # License file (MIT)
 
