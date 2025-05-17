@@ -448,12 +448,13 @@ slide-controller/
 
 # 8. Future Enhancements (Suggestions)
 
+* MQTT backend already done. [Check This project](https://github.com/lovnishverma/slide-controller)
 * Add dynamic configuration page to set target IP, WiFi credentials.
 * Implement HTTPS and basic auth for web UI.
 * Add WebSocket communication to get real-time LED status feedback on UI.
 * Support more complex key sequences or macros.
 * Add OTA update for ESP8266 firmware.
-* Add mobile app with Bluetooth or MQTT backend.
+* Add mobile app (using flutter) with Bluetooth ( For Bluetooth will use ESP 32)
 
 ---
 
@@ -486,4 +487,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+**Made with Lots of Love by Lovnish Verma**
 ---
